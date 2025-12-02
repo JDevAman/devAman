@@ -21,7 +21,7 @@ export const oauthCallback = (req: Request, res: Response) => {
     avatar: user.avatar,
   });
 
-  // 3. Set Cookie
+  // 3. Set Access Token
   res.cookie("token", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -29,6 +29,9 @@ export const oauthCallback = (req: Request, res: Response) => {
     path: "/",
     maxAge: 24 * 60 * 60 * 1000,
   });
+
+  //4. Set Refresh Token
+  
 
   // 4. Send the Popup Closer Script
   res.send(`

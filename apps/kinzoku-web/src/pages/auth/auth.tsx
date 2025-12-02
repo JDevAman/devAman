@@ -180,12 +180,11 @@ export function AuthPage() {
 
       try {
         const res = await api.post(`user/${activeTab}`, {
-          userName: formData.email,
+          email: formData.email,
           password: formData.password,
           ...(activeTab === "signup" && {
             firstName: formData.firstName,
             lastName: formData.lastName,
-            confirmPassword: formData.confirmPassword,
           }),
         });
         dispatch(setUser(res.data.user));

@@ -1,10 +1,12 @@
 import { prisma } from "../db";
-import { Prisma, AuthProvider } from "@prisma/client"; // Added AuthProvider
+import { Prisma, AuthProvider } from "@prisma/client";
+import { v4 as uuidv4 } from "uuid";
+import { hashToken } from "../utils/tokens";
 
 export class UserRepository {
   async findByEmail(email: string) {
     return await prisma.user.findUnique({
-      where: { userName: email },
+      where: { email: email },
     });
   }
 
@@ -40,7 +42,7 @@ export class UserRepository {
         id: true,
         firstName: true,
         lastName: true,
-        userName: true,
+        email: true,
         avatar: true,
       },
     });
@@ -58,7 +60,7 @@ export class UserRepository {
 
     return await prisma.user.create({
       data: {
-        userName: data.email,
+        email: data.email,
         firstName: data.firstName,
         lastName: data.lastName,
         avatar: data.avatar,
@@ -73,38 +75,98 @@ export class UserRepository {
     });
   }
 
-  // ✅ NEW: Save Refresh Token to DB
-  async createRefreshToken(userId: string, token: string, expiresAt: Date) {
+  async createRefreshToken(userId: string, rawToken: string, expiresAt: Date) {
+    const tokenHash = hashToken(rawToken);
     return await prisma.refreshToken.create({
       data: {
         userId,
-        token,
+        tokenHash,
         expiresAt,
       },
     });
   }
 
-  // ✅ NEW: Find Refresh Token
-  async findRefreshToken(token: string) {
+  async findRefreshTokenByRaw(rawToken: string) {
+    const tokenHash = hashToken(rawToken);
     return await prisma.refreshToken.findUnique({
-      where: { token },
-      include: { user: true }, // Include user to check status later
+      where: { tokenHash },
+      include: { user: true },
     });
   }
 
   // ✅ NEW: Revoke Token (Logout)
-  async deleteRefreshToken(token: string) {
-    return await prisma.refreshToken.delete({
-      where: { token },
+  async revokeRefreshTokenById(
+    tokenId: string,
+    opts?: { replacedById?: string }
+  ) {
+    return prisma.refreshToken.update({
+      where: { id: tokenId },
+      data: {
+        revoked: true,
+      },
     });
   }
 
-  // ✅ NEW: Revoke All Tokens (Security: "Logout all devices")
-  async deleteAllRefreshTokensForUser(userId: string) {
-    return await prisma.refreshToken.deleteMany({
-      where: { userId },
+  // Revoke all refresh tokens for a user (logout everywhere)
+  async revokeAllRefreshTokensForUser(userId: string) {
+    return prisma.refreshToken.updateMany({
+      where: { userId, revoked: false },
+      data: { revoked: true },
     });
   }
-  
+
+  async rotateRefreshToken(
+    oldRawToken: string,
+    userId: string,
+    newExpiresAt: Date
+  ) {
+    const oldHash = hashToken(oldRawToken);
+
+    return await prisma.$transaction(async (tx) => {
+      const oldRecord = await tx.refreshToken.findUnique({
+        where: { tokenHash: oldHash },
+      });
+
+      if (!oldRecord) {
+        throw new Error("Invalid refresh token");
+      }
+
+      if (oldRecord.revoked) {
+        await tx.refreshToken.updateMany({
+          where: { userId },
+          data: { revoked: true },
+        });
+        throw new Error("Refresh token reuse detected");
+      }
+
+      if (oldRecord.expiresAt < new Date()) {
+        await tx.refreshToken.update({
+          where: { id: oldRecord.id },
+          data: { revoked: true },
+        });
+        throw new Error("Refresh token expired");
+      }
+
+      const newRaw = uuidv4();
+      const newHash = hashToken(newRaw);
+
+      const newRecord = await tx.refreshToken.create({
+        data: {
+          userId,
+          tokenHash: newHash,
+          expiresAt: newExpiresAt,
+        },
+      });
+
+      // revoke old and point to new
+      await tx.refreshToken.update({
+        where: { id: oldRecord.id },
+        data: { revoked: true },
+      });
+
+      return { newRawToken: newRaw, newRecord };
+    });
+  }
 }
+
 export const userRepository = new UserRepository();

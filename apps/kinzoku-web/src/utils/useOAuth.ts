@@ -30,6 +30,7 @@ export function useOAuth() {
           (async () => {
             try {
               const res = await api.get(`${backendUrl}${baseUrl}/user/me`);
+              console.log(res);
               dispatch(setUser(res.data.user));
               goToDashboard();
             } catch (err) {

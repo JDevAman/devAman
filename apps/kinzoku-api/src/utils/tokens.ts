@@ -1,28 +1,25 @@
 import jwt from "jsonwebtoken";
 import config from "../config";
+import crypto from "crypto";
 
-interface UserPayload {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  name?: string; // Optional: For cases where you only have a full name
-  avatar?: string | null;
+export type AccessTokenPayload = { id: string };
+
+function hashToken(token: String) {
+  return crypto.createHash("SHA256").update(token).digest("hex");
 }
 
-function signjwt(payload: UserPayload): string {
-  // Use config.jwtsecret (ensure this exists in your config file)
-  return jwt.sign(payload, config.jwtsecret || "secret", { expiresIn: "24h" });
+function signAccessToken(payload: AccessTokenPayload) {
+  return jwt.sign(payload, config.jwtsecret, {
+    expiresIn: config.accessTokenExpiresIn,
+  });
 }
 
-function verifyjwt(token: string): UserPayload {
+function verifyAccessToken(token: AccessTokenPayload) {
   try {
-    return jwt.verify(token, config.jwtsecret || "secret") as UserPayload;
+    return jwt.verify(token, config.jwtsecret) as AccessTokenPayload;
   } catch (err) {
-    // It's often better to return null or throw a specific error object
-    // so your middleware can send a proper 401 response.
-    throw new Error("Invalid or expired token");
+    return null;
   }
 }
 
-export { signjwt, verifyjwt, UserPayload };
+export { signAccessToken, verifyAccessToken, hashToken };

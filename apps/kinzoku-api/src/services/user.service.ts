@@ -2,19 +2,15 @@ import argon2 from "argon2";
 import config from "../config";
 import { v4 as uuidv4 } from "uuid";
 import { userRepository } from "../repositories/user.repository";
-import { signjwt } from "../utils/tokens";
-import {
-  userSignUpSchema,
-  userSignInSchema,
-  updateUserSchema,
-} from "@kinzoku/shared" 
+import { signAccessToken } from "../utils/tokens";
+import { SignupInput, SigninInput } from "@kinzoku/shared";
 
 export class UserService {
-  async signUp(payload: userSignUpSchema) {
-    const { firstName, lastName, userName, password } = payload;
+  async signUp(payload: SignupInput) {
+    const { firstName, lastName, email, password } = payload;
 
     // 1. Check existence
-    const existingUser = await userRepository.findByEmail(userName);
+    const existingUser = await userRepository.findByEmail(email);
     if (existingUser) {
       throw new Error("User already exists!");
     }
@@ -26,7 +22,7 @@ export class UserService {
     const newUser = await userRepository.createUser({
       firstName,
       lastName,
-      userName,
+      email,
       password: hashedPassword,
       Account: {
         create: { balance: 0 },
@@ -34,29 +30,31 @@ export class UserService {
     });
 
     // 4. Generate Token
-    const accessToken = signjwt({
-        id: newUser.id,
-        email: newUser.userName,
-        firstName: newUser.firstName,
-        lastName: newUser.lastName,
-        role: newUser.role
+    const accessToken = signAccessToken({
+      id: newUser.id,
     });
 
     // 3. Generate Refresh Token
     const refreshToken = uuidv4();
-    const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    
+    const refreshExpiresAt = new Date(
+      Date.now() + config.refreshTokenExpiresDays * 24 * 60 * 60 * 1000
+    );
+
     // 4. Store Refresh Token
-    await userRepository.createRefreshToken(newUser.id, refreshToken, refreshExpiresAt);
+    await userRepository.createRefreshToken(
+      newUser.id,
+      refreshToken,
+      refreshExpiresAt
+    );
 
     // Return EVERYTHING
     return { user: newUser, accessToken, refreshToken };
   }
 
-  async signIn(payload: userSignInSchema) {
-    const { userName, password } = payload;
+  async signIn(payload: SigninInput) {
+    const { email, password } = payload;
 
-    const user = await userRepository.findByEmail(userName);
+    const user = await userRepository.findByEmail(email);
     if (!user || !user.password) {
       throw new Error("Invalid credentials");
     }
@@ -73,13 +71,7 @@ export class UserService {
     if (!isValid) throw new Error("Incorrect password");
 
     // ✅ 2. Generate Access Token (JWT) - Short Lived (15m)
-    const accessToken = signjwt({
-      id: user.id,
-      email: user.userName,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role, // Add role to JWT for frontend RBAC
-    });
+    const accessToken = signAccessToken({ id: user.id });
 
     // ✅ 3. Generate Refresh Token (UUID) - Long Lived (7d)
     const refreshToken = uuidv4();
@@ -96,27 +88,34 @@ export class UserService {
   }
 
   async refreshAccessToken(incomingRefreshToken: string) {
-    // 1. Find token in DB
-    const record = await userRepository.findRefreshToken(incomingRefreshToken);
+    const existing =
+      await userRepository.findRefreshTokenByRaw(incomingRefreshToken);
+    if (!existing) {
+      throw new Error("Invalid refresh token");
+    }
 
-    // 2. Validate
-    if (!record) throw new Error("Invalid refresh token");
-    if (record.expiresAt < new Date()) throw new Error("Refresh token expired");
-    if (record.revoked) throw new Error("Token revoked"); // If you implement soft delete
-    if (record.user.status !== "ACTIVE") throw new Error("User banned");
+    if (existing.user.status !== "ACTIVE") {
+      await userRepository.revokeAllRefreshTokensForUser(existing.user.id);
+      throw new Error("User not active");
+    }
 
-    // 3. Issue new Access Token
-    const newAccessToken = signjwt({
-      id: record.user.id,
-      email: record.user.userName,
-      firstName: record.user.firstName,
-      lastName: record.user.lastName,
-      role: record.user.role,
-    });
+    const newExpires = new Date(
+      Date.now() + config.refreshTokenExpiresDays * 24 * 60 * 60 * 1000
+    );
 
-    // Optional: Rotate Refresh Token (Delete old, create new) for extra security
-    // For now, we just return the new access token
-    return { accessToken: newAccessToken };
+    const { newRawToken } = await userRepository.rotateRefreshToken(
+      incomingRefreshToken,
+      existing.user.id,
+      newExpires
+    );
+
+    // create new access token (JWT)
+    const accessToken = signAccessToken({ id: existing.user.id });
+    return {
+      accessToken,
+      refreshToken: newRawToken,
+      user: existing.user,
+    };
   }
 
   async logout(refreshToken: string) {
@@ -124,11 +123,7 @@ export class UserService {
     await userRepository.deleteRefreshToken(refreshToken);
   }
 
-  async updateProfile(
-    userId: string,
-    currentUserEmail: string,
-    payload: updateUserSchema
-  ) {
+  async updateProfile(userId: string, payload: updateUserSchema) {
     const { firstName, lastName, email, password } = payload;
     const updateData: any = {};
 
@@ -148,12 +143,8 @@ export class UserService {
     const updatedUser = await userRepository.updateUser(userId, updateData);
 
     // Re-issue token because details changed
-    const token = signjwt({
+    const token = signAccessToken({
       id: updatedUser.id,
-      firstName: updatedUser.firstName,
-      lastName: updatedUser.lastName,
-      email: updatedUser.userName,
-      role: updatedUser.role,
     });
 
     return { token };

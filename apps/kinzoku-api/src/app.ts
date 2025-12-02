@@ -4,8 +4,7 @@ import cookieParser from "cookie-parser";
 import config from "./config";
 import { prisma } from "./db";
 import mainRouter from "./routes/main.routes";
-import swaggerUi from "swagger-ui-express"; // <--- Import this
-import { generateOpenAPI } from "./openapi/generator";
+import docsRouter from "./docs";
 
 const app = express();
 
@@ -19,10 +18,8 @@ app.use(
 );
 app.use(cookieParser());
 
-const openApiDocs = generateOpenAPI();
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocs));
-
 // Routes
+app.use("/api/v1", docsRouter);
 app.use("/api/v1", mainRouter);
 
 // Error handler

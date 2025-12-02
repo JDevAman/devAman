@@ -11,6 +11,7 @@ import {
 } from "./Card";
 import { Input } from "../ui/input";
 import { cn } from "../../utils/utils";
+import { userSignInSchema } from "../../../shared/validators";
 
 export type ProfileData = {
   firstName: string;
@@ -24,6 +25,7 @@ export interface ProfileCardProps {
   lastName?: string;
   email?: string;
   avatarUrl?: string;
+  role?: string;
   onSave?: (data: ProfileData) => Promise<void> | void;
   className?: string;
 }
@@ -42,6 +44,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   firstName = "Alex",
   lastName = "Chen",
   email = "alex@example.com",
+  role = "USER",
   avatarUrl,
   onSave,
   className,
@@ -55,6 +58,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const [localFirst, setLocalFirst] = useState(firstName);
   const [localLast, setLocalLast] = useState(lastName);
   const [localEmail, setLocalEmail] = useState(email);
+  const [localRole, setLocalRole] = useState(role);
   const [localAvatarUrl, setLocalAvatarUrl] = useState(avatarUrl);
 
   const initials = useMemo(
@@ -75,6 +79,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     setLocalFirst(firstName);
     setLocalLast(lastName);
     setLocalEmail(email);
+    setLocalRole(role);
     setLocalAvatarUrl(avatarUrl);
     setError(null);
   };
@@ -194,6 +199,13 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
           onChange={(e) => setLocalEmail(e.target.value)}
           disabled={!editMode || saving}
           placeholder="you@example.com"
+        />
+        <Input
+          type="role"
+          value={localEmail}
+          onChange={(e) => setLocalRole(e.target.value)}
+          disabled={true}
+          placeholder="User"
         />
 
         {error && <p className="text-sm text-red-400">{error}</p>}

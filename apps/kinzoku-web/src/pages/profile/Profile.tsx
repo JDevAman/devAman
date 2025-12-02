@@ -26,6 +26,7 @@ export default function ProfilePage() {
           firstName={user.firstName}
           lastName={user.lastName}
           email={user.email}
+          role = {user.role}
           avatarUrl={user.avatar} 
           onSave={async (data) => {
             console.log("Saved profile:", data);

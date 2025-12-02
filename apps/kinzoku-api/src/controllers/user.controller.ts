@@ -1,40 +1,38 @@
 import { Request, Response } from "express";
 import { userService } from "../services/user.service";
-import {
-  signupInput,      // Value (for .safeParse)
-  signinInput,      // Value
-  updateProfileInput // Value
-} from "@kinzoku/shared";
+import { schemas } from "@kinzoku/shared/generated/zod-schemas";
+import { userRepository } from "../repositories/user.repository";
+import config from "../config";
 
-const ACCESS_TOKEN_MS = 15 * 60 * 1000; // 15 mins
-const REFRESH_TOKEN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const ACCESS_MS = 15 * 60 * 1000; // or compute via ms lib if you want from config.accessTokenExpiresIn
+const REFRESH_MS = config.refreshTokenExpiresDays * 24 * 60 * 60 * 1000;
 
 export const signUp = async (req: Request, res: Response) => {
   try {
-    const validation = signupInput.safeParse(req.body);
+    const validation = schemas.SignupInput.safeParse(req.body);
     if (!validation.success) {
       return res.status(422).json({ message: "Invalid input data" });
     }
 
     // ✅ FIX 1: SignUp now returns both tokens (User is auto-logged in)
-    // Make sure your userService.signUp also returns { user, accessToken, refreshToken }
-    const { user, accessToken, refreshToken } = await userService.signUp(validation.data);
+    const { user, accessToken, refreshToken } = await userService.signUp(
+      validation.data
+    );
 
-    // ✅ FIX 2: Send Dual Cookies (Same as SignIn)
-    res.cookie("accessToken", accessToken, {
+    res.cookie(config.cookie.accessCookieName, accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: ACCESS_TOKEN_MS,
+      secure: config.cookie.secure,
+      sameSite: config.cookie.sameSite,
       path: "/",
+      maxAge: ACCESS_MS,
     });
 
-    res.cookie("refreshToken", refreshToken, {
+    res.cookie(config.cookie.refreshCookieName, refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: REFRESH_TOKEN_MS,
-      path: "/api/v1/auth", // Restricted path
+      secure: config.cookie.secure,
+      sameSite: config.cookie.sameSite,
+      path: "/",
+      maxAge: REFRESH_MS,
     });
 
     return res.status(201).json({
@@ -43,8 +41,9 @@ export const signUp = async (req: Request, res: Response) => {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.userName,
+        email: user.email,
         role: user.role,
+        avatar: user.avatar,
       },
     });
   } catch (error: any) {
@@ -55,30 +54,33 @@ export const signUp = async (req: Request, res: Response) => {
 
 export const signIn = async (req: Request, res: Response) => {
   try {
-    const validation = signinInput.safeParse(req.body);
-    if (!validation.success) return res.status(422).json({ message: "Invalid input" });
+    const validation = schemas.SigninInput.safeParse(req.body);
+    if (!validation.success)
+      return res.status(422).json({ message: "Invalid input" });
 
-    const { user, accessToken, refreshToken } = await userService.signIn(validation.data);
+    const { user, accessToken, refreshToken } = await userService.signIn(
+      validation.data
+    );
 
-    res.cookie("accessToken", accessToken, {
+    res.cookie(config.cookie.accessCookieName, accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: ACCESS_TOKEN_MS,
-      path: "/"
+      secure: config.cookie.secure,
+      sameSite: config.cookie.sameSite,
+      path: "/",
+      maxAge: ACCESS_MS,
     });
 
-    res.cookie("refreshToken", refreshToken, {
+    res.cookie(config.cookie.refreshCookieName, refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: REFRESH_TOKEN_MS,
-      path: "/api/v1/auth"
+      secure: config.cookie.secure,
+      sameSite: config.cookie.sameSite,
+      path: "/",
+      maxAge: REFRESH_MS,
     });
 
     return res.status(200).json({
       message: "Logged in",
-      user: { id: user.id, email: user.userName, role: user.role }
+      user: { id: user.id, email: user.email, role: user.role },
     });
   } catch (error: any) {
     return res.status(401).json({ message: error.message });
@@ -86,21 +88,21 @@ export const signIn = async (req: Request, res: Response) => {
 };
 
 export const refresh = async (req: Request, res: Response) => {
-  const incomingRefreshToken = req.cookies.refreshToken;
+  const incomingRefreshToken = req.cookies.refresh_token;
 
   if (!incomingRefreshToken) {
     return res.status(401).json({ message: "Refresh Token Missing" });
   }
 
   try {
-    const { accessToken } = await userService.refreshAccessToken(incomingRefreshToken);
-
+    const { accessToken } =
+      await userService.refreshAccessToken(incomingRefreshToken);
     // Send new Access Token
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: ACCESS_TOKEN_MS,
+      maxAge: ACCESS_MS,
       path: "/",
     });
 
@@ -109,13 +111,15 @@ export const refresh = async (req: Request, res: Response) => {
     // If refresh fails, clear everything so user is forced to login
     res.clearCookie("accessToken");
     res.clearCookie("refreshToken", { path: "/api/v1/auth" });
-    return res.status(403).json({ message: "Invalid Refresh Token, please login again" });
+    return res
+      .status(403)
+      .json({ message: "Invalid Refresh Token, please login again" });
   }
 };
 
 export const updateProfile = async (req: Request, res: Response) => {
   try {
-    const validation = updateProfileInput.safeParse(req.body);
+    const validation = schemas.UpdateProfileInput.safeParse(req.body);
     if (!validation.success) {
       return res.status(422).json({ message: "Invalid profile data" });
     }
@@ -125,18 +129,17 @@ export const updateProfile = async (req: Request, res: Response) => {
 
     const result = await userService.updateProfile(
       currentUser.id,
-      currentUser.email,
       validation.data
     );
 
     // ✅ FIX 4: Only update Access Token (Refresh token stays same)
     // Note: UserService needs to return just the token here
-    res.cookie("accessToken", result.token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: ACCESS_TOKEN_MS,
-        path: "/",
+    res.cookie(config.cookie.accessCookieName, result.token, {
+      httpOnly: true,
+      secure: config.cookie.secure,
+      sameSite: config.cookie.sameSite,
+      path: "/",
+      maxAge: ACCESS_MS,
     });
 
     return res.status(200).json({ message: "User profile updated" });
@@ -145,39 +148,37 @@ export const updateProfile = async (req: Request, res: Response) => {
   }
 };
 
-export const getMe = (req: Request, res: Response) => {
+export const getMe = async (req: Request, res: Response) => {
   // @ts-ignore
-  const user = req.user;
-  if (!user) return res.status(401).json({ message: "Not logged in" });
+  const userFromAuth = req.user;
+  if (!userFromAuth) return res.status(401).json({ message: "Not logged in" });
 
-  return res.status(200).json({
-    user: {
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      avatar: user.avatar,
-      role: user.role, // Added role
-    },
-  });
+  const user = await userRepository.findById(userFromAuth.id);
+
+  if (!user) {
+    return res.status(404).json({ message: "User no longer exists" });
+  }
+
+  return res.status(200).json({ user });
 };
 
 export const logout = async (req: Request, res: Response) => {
   try {
     const refreshToken = req.cookies.refreshToken;
-    
+
     if (refreshToken) {
       // Try to remove from DB
       await userService.logout(refreshToken);
     }
-    
+
     // Success response
     return res.status(200).json({ message: "Logged out successfully" });
-
   } catch (error: any) {
     console.error("Logout Error:", error);
     // Even if DB fails, we return 200 so the frontend feels "logged out"
-    return res.status(200).json({ message: "Logged out (Server cleanup failed)" });
+    return res
+      .status(200)
+      .json({ message: "Logged out (Server cleanup failed)" });
   } finally {
     // ✅ CRITICAL: Always clear cookies, even if DB explodes
     res.clearCookie("accessToken");
@@ -188,7 +189,8 @@ export const logout = async (req: Request, res: Response) => {
 export const bulkSearch = async (req: Request, res: Response) => {
   try {
     const filter = req.query.filter as string;
-    if (!filter) return res.status(400).json({ message: "Missing filter param" });
+    if (!filter)
+      return res.status(400).json({ message: "Missing filter param" });
 
     const users = await userService.bulkSearch(filter);
     return res.status(200).json({ users });

@@ -5,6 +5,7 @@ interface User {
   firstName: string;
   lastName: string;
   email: string;
+  role: string;
 }
 
 interface AuthState {
@@ -16,7 +17,7 @@ interface AuthState {
 const initialState: AuthState = {
   user: null,
   signupEmail: null,
-  loading: true, // initially true, we’ll fetch user on app init
+  loading: false, // initially true, we’ll fetch user on app init
 };
 
 const authSlice = createSlice({

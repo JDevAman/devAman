@@ -49,7 +49,7 @@ enum TxType {
 
 model User {
   id            String       @id @default(uuid())
-  userName      String       @unique // This is the Email
+  email      String       @unique // This is the Email
   firstName     String
   lastName      String
   password      String?      // Nullable for OAuth
@@ -78,7 +78,7 @@ model User {
 // ✅ AUTH: Database-backed sessions for security
 model RefreshToken {
   id        String   @id @default(uuid())
-  token     String   @unique
+  tokenHash     String   @unique
   userId    String
   expiresAt DateTime
   revoked   Boolean  @default(false)
@@ -101,7 +101,7 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@map("accounts")
 }
